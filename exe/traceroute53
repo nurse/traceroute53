@@ -103,10 +103,18 @@ def describe_instances(client, instance_ids)
 end
 
 def describe_security_groups(client, group_ids)
-  resp = client.describe_security_groups({
-    group_ids: group_ids,
-  })
-  resp.security_groups
+  marker = nil
+  security_groups = []
+  loop do
+    resp = client.describe_security_groups({
+      group_ids: group_ids,
+      next_token: marker,
+    })
+    security_groups.concat resp.security_groups
+    marker = resp.next_token
+    break unless marker
+  end
+  security_groups
 end
 
 def describe_target_health(client, target_group_arn)
