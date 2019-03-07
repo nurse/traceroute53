@@ -1,3 +1,225 @@
 #!/usr/bin/env ruby
+# Trace route53 and Load Balancers related to the given domain
+require 'aws-sdk'
 
-require "traceroute53"
+def list_hosted_zones(client)
+  hosted_zones = []
+  marker = nil
+  loop do
+    resp = client.list_hosted_zones({
+      marker: marker,
+    })
+    hosted_zones.concat resp.hosted_zones
+    break unless resp.is_truncated
+    marker = resp.next_marker
+  end
+  # p hosted_zones.map(&:name)
+  hosted_zones
+end
+
+def list_resource_record_sets(client, hosted_zone)
+  records = []
+  start_record_name = nil
+  start_record_type = nil
+  start_record_identifier = nil
+  loop do
+    resp = client.list_resource_record_sets({
+      start_record_name: start_record_name,
+      start_record_type: start_record_type,
+      start_record_identifier: start_record_identifier,
+      hosted_zone_id: hosted_zone.id
+    })
+    records.concat resp.resource_record_sets
+    break unless resp.is_truncated
+    start_record_name = resp.next_record_name
+    start_record_type = resp.next_record_type
+    start_record_identifier = resp.next_record_identifier
+  end
+  # p records
+  # p records.map(&:name)
+  records
+end
+
+def describe_load_balancers(client)
+  marker = nil
+  load_balancers = []
+  loop do
+    resp = client.describe_load_balancers({
+      marker: marker,
+    })
+    load_balancers.concat resp.load_balancers
+    marker = resp.next_marker
+    break unless marker
+  end
+  load_balancers
+end
+
+def describe_listeners(client, load_balancer)
+  marker = nil
+  listeners = []
+  loop do
+    resp = client.describe_listeners({
+      load_balancer_arn: load_balancer.load_balancer_arn,
+      marker: marker,
+    })
+    listeners.concat resp.listeners
+    marker = resp.next_marker
+    break unless marker
+  end
+  listeners
+end
+
+def describe_target_groups(client, target_group_arns)
+  marker = nil
+  target_groups = []
+  loop do
+    resp = client.describe_target_groups({
+      target_group_arns: target_group_arns,
+      marker: marker,
+    })
+    target_groups.concat resp.target_groups
+    marker = resp.next_marker
+    break unless marker
+  end
+  target_groups
+end
+
+def describe_instances(client, instance_ids)
+  marker = nil
+  instances = []
+  loop do
+    resp = client.describe_instances({
+      instance_ids: instance_ids,
+      next_token: marker,
+    })
+    resp.reservations.each do |reservation|
+      instances.concat reservation.instances
+    end
+    marker = resp.next_token
+    break unless marker
+  end
+  instances
+end
+
+def describe_security_groups(client, group_ids)
+  resp = client.describe_security_groups({
+    group_ids: group_ids,
+  })
+  resp.security_groups
+end
+
+def describe_target_health(client, target_group_arn)
+  resp = client.describe_target_health({
+    target_group_arn: target_group_arn,
+  })
+  resp.target_health_descriptions
+end
+
+def main
+  domain = ARGV.shift
+  unless domain
+    puts "usage: #$0 <domain>"
+    exit
+  end
+  profile = 'dev-backend'
+
+  client = Aws::Route53::Client.new(
+    region: 'us-east-1',
+    profile: profile,
+  )
+
+  hosted_zones = list_hosted_zones(client)
+  domain_dot = domain + '.'
+  zones = hosted_zones.select{|zone| domain_dot.end_with?(zone.name)}
+  if zones.empty?
+    STDERR.puts "hosted zone not found for #{domain}"
+    exit 1
+  end
+  # p zones
+  hosted_zone = zones.sort_by{|zone| zone.name.size}.last
+  # p hosted_zone
+  puts "hosted zone: #{hosted_zone.name}"
+
+  records = list_resource_record_sets(client, hosted_zone)
+  records.select!{|record| record.name == domain_dot}
+  if records.empty?
+    STDERR.puts "resource record set not found in #{hosted_zone} for #{domain}"
+    exit 1
+  end
+  if records.size != 1
+    STDERR.puts records.inspect
+    STDERR.puts "more than one resource record set in #{hosted_zone} for #{domain}"
+    exit 1
+  end
+  dns_name = records[0].alias_target.dns_name
+  puts "dns name: #{dns_name}"
+  dns_name.sub!(/\Adualstack\./, '')
+  dns_name.chomp!('.')
+
+  region = dns_name[/([a-z0-9\-]+)\.elb\.amazonaws.com\z/, 1]
+  client = Aws::ElasticLoadBalancingV2::Client.new(
+    region: region,
+    profile: profile,
+  )
+  load_balancers = describe_load_balancers(client)
+  if load_balancers.empty?
+    STDERR.puts "load balancers not found in #{region} for #{dns_name}"
+    exit 1
+  end
+  load_balancer = load_balancers.find{|lb| lb.dns_name == dns_name}
+  unless load_balancer
+    load_balancers.each_with_index do |lb, i|
+      STDERR.puts "load balancer[#{i}]: #{lb.dns_name}"
+    end
+    STDERR.puts "load balancers not found in #{region} for #{dns_name}"
+    exit 1
+  end
+  puts "load balancer: #{load_balancer.load_balancer_name} #{load_balancer.security_groups}"
+
+  listeners = describe_listeners(client, load_balancer)
+  if listeners.empty?
+    STDERR.puts "listeners not found in #{region} for #{load_balancer}"
+    exit 1
+  end
+
+  instance_ids = []
+  listeners.each_with_index do |listener, i|
+    # p listener
+    puts "listener[#{i}]: port:#{listener.port} #{listener.listener_arn}"
+    listener.default_actions.each_with_index do |action, j|
+      puts "listener[#{i}]action[#{j}]: #{action.type} #{action.target_group_arn}"
+      target_healths = describe_target_health(client, action.target_group_arn)
+      target_healths.each_with_index do |health, k|
+        puts "listener[#{i}]action[#{j}]target[#{k}]: #{health.target.id}:#{health.target.port} #{health.target_health.state}"
+        instance_ids << health.target.id
+      end
+    end
+  end
+
+  # p target_group_arns
+  # target_groups = describe_target_groups(client, target_group_arns)
+  # if target_groups.empty?
+  #   STDERR.puts "target groups not found in #{region} for #{listeners}"
+  #   exit 1
+  # end
+  # p target_groups
+
+  client = Aws::EC2::Client.new(
+    region: region,
+    profile: profile,
+  )
+  instances = describe_instances(client, instance_ids)
+  group_ids_ary = instances.map{|instance| instance.security_groups.map(&:group_id)}.uniq
+
+  group_ids_ary.each_with_index do |group_ids, i|
+    puts "group_ids[#{i}]: #{group_ids}"
+    security_groups = describe_security_groups(client, group_ids)
+    security_groups.each_with_index do |sg, j|
+      puts "group_ids[#{i}]sg[#{j}]: #{sg.group_id}"
+      sg.ip_permissions.each_with_index do |ip, k|
+        puts "group_ids[#{i}]sg[#{j}]ip[#{k}]: port:#{ip.from_port.inspect} #{ip.user_id_group_pairs.map(&:group_id)}"
+      end
+    end
+  end
+end
+main
