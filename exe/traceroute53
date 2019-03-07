@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # Trace route53 and Load Balancers related to the given domain
 require 'aws-sdk'
+require 'optparse'
 
 def list_hosted_zones(client)
   hosted_zones = []
@@ -116,12 +117,17 @@ def describe_target_health(client, target_group_arn)
 end
 
 def main
+  opt = OptionParser.new("usage: traceroute53 <domain>")
+
+  profile = nil
+  opt.on('--profile PROFILE', "use given profile") {|v| profile = v }
+
+  opt.parse!(ARGV)
   domain = ARGV.shift
   unless domain
-    puts "usage: #$0 <domain>"
+    puts opt.help
     exit
   end
-  profile = 'dev-backend'
 
   client = Aws::Route53::Client.new(
     region: 'us-east-1',
