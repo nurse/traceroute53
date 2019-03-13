@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
   spec.email         = ["naruse@airemix.jp"]
 
   spec.summary       = %q{A tool to investigate Route53, ELB, EC2 and Security Groups}
-  spec.description   = %q{An tool to investigate Route53, ELB, EC2 and Security Groups}
+  spec.description   = %q{A tool to investigate Route53, ELB, EC2 and Security Groups}
   spec.homepage      = "https://github.com/nurse/traceroute53"
   spec.license       = "MIT"
 
@@ -36,6 +36,7 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
+  spec.add_dependency "aws-sdk", "~> 3"
   spec.add_development_dependency "bundler", "~> 1.17"
   spec.add_development_dependency "rake", "~> 10.0"
   spec.add_development_dependency "rspec", "~> 3.0"
