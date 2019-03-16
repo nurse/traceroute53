@@ -18,7 +18,7 @@ gem install traceroute53
 traceroute53 <domain>
 ```
 
-To pass credentials, [set environment variables](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html#aws-ruby-sdk-credentials-environment) or speicfy `--profile=PROFILE` option.
+To pass credentials, [set environment variables](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html#aws-ruby-sdk-credentials-environment) or specify `--profile=PROFILE` option.
 
 ### An example for healthy domain
 
