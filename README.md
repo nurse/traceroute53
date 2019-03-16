@@ -42,7 +42,7 @@ group_ids[0]sg[1]ip[1]: port:nil ["sg-f8f8f8f8"]
 group_ids[0]sg[1]ip[2]: port:22 ["sg-33886655"]
 ```
 
-### An example for unhealthy domain
+### An example for mismatched security groups
 
 In this example Route53's hosted zone correctly have dns resource, which has correct dns\_name, listener, target group but its 2nd security group's Permission set is empty.
 
