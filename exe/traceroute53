@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 # Trace route53 and Load Balancers related to the given domain
-require 'aws-sdk'
+require 'aws-sdk-route53'
+require 'aws-sdk-elasticloadbalancingv2'
+require 'aws-sdk-ec2'
 require 'optparse'
 
 def list_hosted_zones(client)
