@@ -156,19 +156,25 @@ def main
   # p hosted_zone
   puts "hosted zone: #{hosted_zone.name}"
 
-  records = list_resource_record_sets(client, hosted_zone)
-  records.select!{|record| record.name == domain_dot}
-  if records.empty?
-    STDERR.puts "resource record set not found in #{hosted_zone} for #{domain}"
-    exit 1
+  record_sets = list_resource_record_sets(client, hosted_zone)
+  while true
+    records = record_sets.select{|record| record.name == domain_dot}
+    if records.empty?
+      STDERR.puts "resource record set not found in #{hosted_zone} for #{domain}"
+      exit 1
+    end
+    if records.size != 1
+      STDERR.puts records.inspect
+      STDERR.puts "more than one resource record set in #{hosted_zone} for #{domain}"
+      exit 1
+    end
+    dns_name = records[0].alias_target.dns_name
+    puts "dns name: #{dns_name}"
+    if /([a-z0-9\-]+)\.elb\.amazonaws.com\.\z/ =~ dns_name
+      break
+    end
+    domain_dot = dns_name
   end
-  if records.size != 1
-    STDERR.puts records.inspect
-    STDERR.puts "more than one resource record set in #{hosted_zone} for #{domain}"
-    exit 1
-  end
-  dns_name = records[0].alias_target.dns_name
-  puts "dns name: #{dns_name}"
   dns_name.sub!(/\Adualstack\./, '')
   dns_name.chomp!('.')
 
