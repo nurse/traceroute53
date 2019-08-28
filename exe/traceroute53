@@ -170,7 +170,7 @@ def main
     end
     dns_name = records[0].alias_target.dns_name
     puts "dns name: #{dns_name}"
-    if /([a-z0-9\-]+)\.elb\.amazonaws.com\.\z/ =~ dns_name
+    if /\.elb\.(?:[a-z0-9\-]+\.)?amazonaws.com\.\z/ =~ dns_name
       break
     end
     domain_dot = dns_name
@@ -178,7 +178,11 @@ def main
   dns_name.sub!(/\Adualstack\./, '')
   dns_name.chomp!('.')
 
-  region = dns_name[/([a-z0-9\-]+)\.elb\.amazonaws.com\z/, 1]
+  unless /([a-z0-9\-]+)?\.elb\.(?:([a-z0-9\-]+)\.)?amazonaws.com\z/ =~ dns_name
+    STDERR.puts "dns_name:#{dns_name} doesn't include AWS region name"
+    exit 1
+  end
+  region = $2 || $1
   client = Aws::ElasticLoadBalancingV2::Client.new(
     region: region,
     profile: profile,
