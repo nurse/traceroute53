@@ -59,21 +59,6 @@ def describe_load_balancers(client, name)
   load_balancers
 end
 
-def describe_listeners(client, load_balancer)
-  marker = nil
-  listeners = []
-  loop do
-    resp = client.describe_listeners({
-      load_balancer_arn: load_balancer.load_balancer_arn,
-      marker: marker,
-    })
-    listeners.concat resp.listeners
-    marker = resp.next_marker
-    break unless marker
-  end
-  listeners
-end
-
 def describe_load_balancersv2(client, name)
   marker = nil
   load_balancers = []
