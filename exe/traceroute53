@@ -299,15 +299,24 @@ def main
     end
   end
 
+  # Inspect Security Group
   client = Aws::EC2::Client.new(
     region: region,
     profile: profile,
   )
   instances = describe_instances(client, instance_ids)
-  group_ids_ary = instances.map{|instance| instance.security_groups.map(&:group_id)}.uniq
+  group_ids_hash = {}
+  instances.each do |instance|
+    group_ids = instance.security_groups.map(&:group_id)
+    group_ids_hash[group_ids] ||= []
+    group_ids_hash[group_ids] << instance.instance_id
+  end
 
-  group_ids_ary.each_with_index do |group_ids, i|
+  # Assume that instances under an ELB have the same security groups.
+  # If they are varied, something weird is happening and it needs further investigation...
+  group_ids_hash.each_pair.with_index do |(group_ids, instance_ids), i|
     puts "group_ids[#{i}]: #{group_ids}"
+    puts "group_ids[#{i}]: #{instance_ids}"
     security_groups = describe_security_groups(client, group_ids)
     security_groups.each_with_index do |sg, j|
       puts "group_ids[#{i}]sg[#{j}]: #{sg.group_id}"
