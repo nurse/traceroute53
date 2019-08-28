@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # Trace route53 and Load Balancers related to the given domain
 require 'aws-sdk-route53'
+require 'aws-sdk-elasticloadbalancing'
 require 'aws-sdk-elasticloadbalancingv2'
 require 'aws-sdk-ec2'
 require 'optparse'
@@ -43,11 +44,42 @@ def list_resource_record_sets(client, hosted_zone)
   records
 end
 
-def describe_load_balancers(client)
+def describe_load_balancers(client, name)
   marker = nil
   load_balancers = []
   loop do
     resp = client.describe_load_balancers({
+      load_balancer_names: [name],
+      marker: marker,
+    })
+    load_balancers.concat resp.load_balancer_descriptions
+    marker = resp.next_marker
+    break unless marker
+  end
+  load_balancers
+end
+
+def describe_listeners(client, load_balancer)
+  marker = nil
+  listeners = []
+  loop do
+    resp = client.describe_listeners({
+      load_balancer_arn: load_balancer.load_balancer_arn,
+      marker: marker,
+    })
+    listeners.concat resp.listeners
+    marker = resp.next_marker
+    break unless marker
+  end
+  listeners
+end
+
+def describe_load_balancersv2(client, name)
+  marker = nil
+  load_balancers = []
+  loop do
+    resp = client.describe_load_balancers({
+      names: [name],
       marker: marker,
     })
     load_balancers.concat resp.load_balancers
@@ -183,52 +215,89 @@ def main
     exit 1
   end
   region = $2 || $1
-  client = Aws::ElasticLoadBalancingV2::Client.new(
-    region: region,
-    profile: profile,
-  )
-  load_balancers = describe_load_balancers(client)
-  if load_balancers.empty?
-    STDERR.puts "load balancers not found in #{region} for #{dns_name}"
-    exit 1
-  end
-  load_balancer = load_balancers.find{|lb| lb.dns_name == dns_name}
-  unless load_balancer
-    load_balancers.each_with_index do |lb, i|
-      STDERR.puts "load balancer[#{i}]: #{lb.dns_name}"
+
+  name = dns_name[/\A([a-z0-9\-]+)-\h+\./, 1]
+  puts "Load Balancer name is '#{name}'"
+
+  instance_ids = nil
+  begin
+    # Aws::ElasticLoadBalancingV2 (Application Load Balancer or Network Load Balancer)
+    client = Aws::ElasticLoadBalancingV2::Client.new(
+      region: region,
+      profile: profile,
+    )
+    load_balancers = describe_load_balancersv2(client, name)
+    # it raises LoadBalancerNotFound exception if not found
+    load_balancer = load_balancers.find{|lb| lb.dns_name == dns_name}
+    puts "load balancer: #{load_balancer.load_balancer_name} #{load_balancer.security_groups}"
+
+    listeners = describe_listeners(client, load_balancer)
+    if listeners.empty?
+      STDERR.puts "listeners not found in #{region} for #{load_balancer}"
+      exit 1
     end
-    STDERR.puts "load balancers not found in #{region} for #{dns_name}"
-    exit 1
-  end
-  puts "load balancer: #{load_balancer.load_balancer_name} #{load_balancer.security_groups}"
 
-  listeners = describe_listeners(client, load_balancer)
-  if listeners.empty?
-    STDERR.puts "listeners not found in #{region} for #{load_balancer}"
-    exit 1
-  end
-
-  instance_ids = []
-  listeners.each_with_index do |listener, i|
-    # p listener
-    puts "listener[#{i}]: port:#{listener.port} #{listener.listener_arn}"
-    listener.default_actions.each_with_index do |action, j|
-      puts "listener[#{i}]action[#{j}]: #{action.type} #{action.target_group_arn}"
-      target_healths = describe_target_health(client, action.target_group_arn)
-      target_healths.each_with_index do |health, k|
-        puts "listener[#{i}]action[#{j}]target[#{k}]: #{health.target.id}:#{health.target.port} #{health.target_health.state}"
-        instance_ids << health.target.id
+    instance_ids = []
+    listeners.each_with_index do |listener, i|
+      # p listener
+      puts "listener[#{i}]: port:#{listener.port} #{listener.listener_arn}"
+      listener.default_actions.each_with_index do |action, j|
+        puts "listener[#{i}]action[#{j}]: #{action.type} #{action.target_group_arn}"
+        target_healths = describe_target_health(client, action.target_group_arn)
+        target_healths.each_with_index do |health, k|
+          puts "listener[#{i}]action[#{j}]target[#{k}]: #{health.target.id}:#{health.target.port} #{health.target_health.state}"
+          instance_ids << health.target.id
+        end
       end
     end
+    instance_ids
+
+    # p target_group_arns
+    # target_groups = describe_target_groups(client, target_group_arns)
+    # if target_groups.empty?
+    #   STDERR.puts "target groups not found in #{region} for #{listeners}"
+    #   exit 1
+    # end
+    # p target_groups
+
+    unless instance_ids
+      STDERR.puts "load balancers not found in #{region} for #{dns_name} with ELBv2"
+      # exit 1
+    end
+  rescue Aws::ElasticLoadBalancingV2::Errors::LoadBalancerNotFound
+    STDERR.puts "load balancers not found in #{region} for #{dns_name} with ELBv2"
   end
 
-  # p target_group_arns
-  # target_groups = describe_target_groups(client, target_group_arns)
-  # if target_groups.empty?
-  #   STDERR.puts "target groups not found in #{region} for #{listeners}"
-  #   exit 1
-  # end
-  # p target_groups
+  unless instance_ids
+    # Aws::ElasticLoadBalancing (Classic Load Balancer)
+    client = Aws::ElasticLoadBalancing::Client.new(
+      region: region,
+      profile: profile,
+    )
+    load_balancers = describe_load_balancers(client, name)
+    if load_balancers.empty?
+      STDERR.puts "load balancers not found in #{region} for #{dns_name}"
+      exit 1
+    end
+
+    load_balancer = load_balancers.find{|lb| lb.dns_name == dns_name}
+    instance_ids = []
+    unless load_balancer
+      load_balancers.each_with_index do |lb, i|
+        STDERR.puts "load balancer[#{i}]: #{lb.dns_name}"
+      end
+      STDERR.puts "load balancers not found in #{region} for #{dns_name}"
+      exit 1
+    end
+
+    load_balancer = load_balancers[0]
+    puts "load balancer: #{load_balancer.load_balancer_name} #{load_balancer.security_groups}"
+
+    load_balancer.instances.each_with_index do |instance, i|
+      puts "instances[#{i}]: #{instance[:instance_id]}"
+      instance_ids << instance[:instance_id]
+    end
+  end
 
   client = Aws::EC2::Client.new(
     region: region,

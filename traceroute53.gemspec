@@ -37,6 +37,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency 'aws-sdk-route53', "~> 1"
+  spec.add_dependency 'aws-sdk-elasticloadbalancing', "~> 1"
   spec.add_dependency 'aws-sdk-elasticloadbalancingv2', "~> 1"
   spec.add_dependency 'aws-sdk-ec2', "~> 1"
   spec.add_development_dependency "bundler", "~> 1.17"
