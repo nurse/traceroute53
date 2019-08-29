@@ -89,6 +89,21 @@ def describe_listeners(client, load_balancer)
   listeners
 end
 
+def describe_rules(client, listener)
+  marker = nil
+  rules = []
+  loop do
+    resp = client.describe_rules({
+      listener_arn: listener.listener_arn,
+      marker: marker,
+    })
+    rules.concat resp.rules
+    marker = resp.next_marker
+    break unless marker
+  end
+  rules
+end
+
 def describe_target_groups(client, target_group_arns)
   marker = nil
   target_groups = []
@@ -223,15 +238,28 @@ def main
     end
 
     instance_ids = []
+    target_group_arns = {}
     listeners.each_with_index do |listener, i|
       # p listener
       puts "listener[#{i}]: port:#{listener.port} #{listener.listener_arn}"
-      listener.default_actions.each_with_index do |action, j|
-        puts "listener[#{i}]action[#{j}]: #{action.type} #{action.target_group_arn}"
-        target_healths = describe_target_health(client, action.target_group_arn)
-        target_healths.each_with_index do |health, k|
-          puts "listener[#{i}]action[#{j}]target[#{k}]: #{health.target.id}:#{health.target.port} #{health.target_health.state}"
-          instance_ids << health.target.id
+      rules = describe_rules(client, listener)
+      rules.each_with_index do |rule, j|
+        puts "listener[#{i}]rule[#{j}]: #{rule.rule_arn}#{rule.is_default ? ' (default)' : ''}"
+        rule.conditions.each_with_index do |condition, k|
+          puts "listener[#{i}]rule[#{j}]condition[#{k}]: #{condition.values}"
+        end
+        rule.actions.each_with_index do |action, k|
+          puts "listener[#{i}]rule[#{j}]action[#{k}]: #{action.type} #{action.target_group_arn}"
+          if target_group_arns[action.target_group_arn]
+            puts "listener[#{i}]rule[#{j}]action[#{k}]: the target group is already showed; skip"
+          else
+            target_group_arns[action.target_group_arn] = true
+            target_healths = describe_target_health(client, action.target_group_arn)
+            target_healths.each_with_index do |health, l|
+              puts "listener[#{i}]rule[#{j}]action[#{k}]target[#{l}]: #{health.target.id}:#{health.target.port} #{health.target_health.state}"
+              instance_ids << health.target.id
+            end
+          end
         end
       end
     end
