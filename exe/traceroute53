@@ -161,7 +161,7 @@ end
 def main
   opt = OptionParser.new("usage: traceroute53 <domain>")
 
-  profile = nil
+  profile = ENV['AWS_PROFILE']
   opt.on('--profile PROFILE', "use given profile") {|v| profile = v }
 
   opt.parse!(ARGV)
