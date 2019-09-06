@@ -190,7 +190,7 @@ def main
 
   record_sets = list_resource_record_sets(client, hosted_zone)
   while true
-    records = record_sets.select{|record| record.name == domain_dot}
+    records = record_sets.select{|r| r.name == domain_dot}
     if records.empty?
       STDERR.puts "resource record set not found in #{hosted_zone} for #{domain}"
       exit 1
@@ -200,12 +200,30 @@ def main
       STDERR.puts "more than one resource record set in #{hosted_zone} for #{domain}"
       exit 1
     end
-    dns_name = records[0].alias_target.dns_name
-    puts "dns name: #{dns_name}"
-    if /\.elb\.(?:[a-z0-9\-]+\.)?amazonaws.com\.\z/ =~ dns_name
-      break
+    record = records[0]
+    if record.alias_target
+      # The record is an AWS resource
+      dns_name = record.alias_target.dns_name
+      puts "dns name: #{dns_name}"
+      # https://docs.aws.amazon.com/sdk-for-ruby/v3/api/Aws/Route53/Types/AliasTarget.html
+      if /\.elb\.(?:[a-z0-9\-]+\.)?amazonaws.com\.\z/ =~ dns_name
+        break
+      elsif /\.amazonaws.com\.\z/ =~ dns_name
+        STDERR.puts record.inspect
+        STDERR.puts "unsupported AWS resource '#{dns_name}'; pull request is welcome https://github.com/nurse/traceroute53"
+      exit 1
+      else
+        # assune Another Route 53 resource record set
+        domain_dot = dns_name
+      end
+    elsif record.type == 'CNAME'
+      puts "resource_records: #{record.resource_records.map(&:value)}"
+      domain_dot = record.resource_records[0].value
+    else
+      STDERR.puts record.inspect
+      STDERR.puts "unsupported record; pull request is welcome https://github.com/nurse/traceroute53"
+      exit 1
     end
-    domain_dot = dns_name
   end
   dns_name.sub!(/\Adualstack\./, '')
   dns_name.chomp!('.')
