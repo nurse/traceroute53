@@ -59,12 +59,11 @@ def describe_load_balancers(client, name)
   load_balancers
 end
 
-def describe_load_balancersv2(client, name)
+def describe_load_balancersv2(client)
   marker = nil
   load_balancers = []
   loop do
     resp = client.describe_load_balancers({
-      names: [name],
       marker: marker,
     })
     load_balancers.concat resp.load_balancers
@@ -244,7 +243,7 @@ def main
       region: region,
       profile: profile,
     )
-    load_balancers = describe_load_balancersv2(client, name)
+    load_balancers = describe_load_balancersv2(client)
     # it raises LoadBalancerNotFound exception if not found
     load_balancer = load_balancers.find{|lb| lb.dns_name == dns_name}
     puts "load balancer: #{load_balancer.load_balancer_name} #{load_balancer.security_groups}"
