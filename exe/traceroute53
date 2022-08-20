@@ -44,12 +44,11 @@ def list_resource_record_sets(client, hosted_zone)
   records
 end
 
-def describe_load_balancers(client, name)
+def describe_load_balancers(client)
   marker = nil
   load_balancers = []
   loop do
     resp = client.describe_load_balancers({
-      load_balancer_names: [name],
       marker: marker,
     })
     load_balancers.concat resp.load_balancer_descriptions
@@ -233,9 +232,6 @@ def main
   end
   region = $2 || $1
 
-  name = dns_name[/\A([a-z0-9\-]+)-\h+\./, 1]
-  puts "Load Balancer name is '#{name}'"
-
   instance_ids = nil
   begin
     # Aws::ElasticLoadBalancingV2 (Application Load Balancer or Network Load Balancer)
@@ -304,7 +300,7 @@ def main
       region: region,
       profile: profile,
     )
-    load_balancers = describe_load_balancers(client, name)
+    load_balancers = describe_load_balancers(client)
     if load_balancers.empty?
       STDERR.puts "load balancers not found in #{region} for #{dns_name}"
       exit 1
